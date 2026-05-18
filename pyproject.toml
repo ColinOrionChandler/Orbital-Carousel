@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orbital-carousel"
+version = "0.1.0"
+description = "Plot minor-body orbits in heliocentric and planet co-rotating reference frames."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "astroquery>=0.4",
+    "matplotlib>=3.7",
+    "numpy>=1.23",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=7",
+]
+
+[project.scripts]
+corotating-carousel = "orbital_carousel.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
