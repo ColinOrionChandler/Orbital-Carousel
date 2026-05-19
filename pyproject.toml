@@ -20,8 +20,8 @@ test = [
 ]
 
 [project.scripts]
+orbital-carousel = "orbital_carousel.cli:main"
 corotating-carousel = "orbital_carousel.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

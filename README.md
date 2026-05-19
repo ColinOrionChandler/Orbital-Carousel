@@ -21,10 +21,11 @@ python -m pip install -e ".[test]"
 
 ## Command Line
 
-The main command is `corotating-carousel`:
+The main command is `orbital-carousel`. The older `corotating-carousel` name is
+also installed as a compatibility alias:
 
 ```bash
-corotating-carousel "2015 DD349"
+orbital-carousel "2015 DD349"
 ```
 
 By default this writes both PDF and PNG plots into a directory named after the
@@ -33,10 +34,16 @@ object, with spaces replaced by underscores and `/` replaced by `+`.
 Common options:
 
 ```bash
-corotating-carousel "C/2014 OG392" --planets auto --format png
-corotating-carousel "2000 OG44" --frame heliocentric --planets Venus,Earth,Mars,Jupiter
-corotating-carousel "2010 RJ226" --frame-body Saturn --figsize 8 8 --output-dir plots
-corotating-carousel "2015 DD349" --exclude-planet Mercury --exclude-planet Venus
+orbital-carousel "C/2014 OG392" --planets auto --format png
+orbital-carousel "2000 OG44" --frame heliocentric --planets Venus,Earth,Mars,Jupiter
+orbital-carousel "2010 RJ226" --frame-body Saturn --figsize 8 8 --output-dir plots
+orbital-carousel "2015 DD349" --exclude-planet Mercury --exclude-planet Venus
+```
+
+From a source checkout, the CLI file can also show help directly:
+
+```bash
+python src/orbital_carousel/cli.py -h
 ```
 
 `--planets auto` first queries the target, finds its maximum heliocentric

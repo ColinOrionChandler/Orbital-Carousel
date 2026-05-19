@@ -1,4 +1,11 @@
+import subprocess
+import sys
+from pathlib import Path
+
 from orbital_carousel.cli import build_parser, request_from_args
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_parser_defaults_are_jupiter_corotating_all_planets():
@@ -48,3 +55,29 @@ def test_help_does_not_leak_derived_none_defaults():
     assert "Defaults to ./<safe object" in help_text
     assert "name>/." in help_text
     assert "today's UTC date." in help_text
+
+
+def test_help_uses_requested_program_name():
+    help_text = build_parser(prog="corotating-carousel").format_help()
+
+    assert "usage: corotating-carousel" in help_text
+    assert 'corotating-carousel "2015 DD349"' in help_text
+
+
+def test_pyproject_installs_primary_and_legacy_commands():
+    pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+
+    assert 'orbital-carousel = "orbital_carousel.cli:main"' in pyproject
+    assert 'corotating-carousel = "orbital_carousel.cli:main"' in pyproject
+
+
+def test_cli_file_can_show_help_from_source_tree():
+    result = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "src" / "orbital_carousel" / "cli.py"), "-h"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=True,
+        text=True,
+    )
+
+    assert "Plot a minor-body orbit" in result.stdout

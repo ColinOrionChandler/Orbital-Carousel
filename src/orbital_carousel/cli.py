@@ -3,36 +3,52 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import Sequence
 
-from .core import (
-    DEFAULT_FORMATS,
-    DEFAULT_FRAME,
-    DEFAULT_FRAME_BODY,
-    DEFAULT_PLANETS,
-    DEFAULT_START,
-    DEFAULT_STEP,
-    PlotRequest,
-    plot_orbit,
-)
+if __package__ in {None, ""}:
+    # Direct file execution starts on src/orbital_carousel; add src/ so the
+    # package import below resolves the same way it does after installation.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from orbital_carousel.core import (
+        DEFAULT_FORMATS,
+        DEFAULT_FRAME,
+        DEFAULT_FRAME_BODY,
+        DEFAULT_PLANETS,
+        DEFAULT_START,
+        DEFAULT_STEP,
+        PlotRequest,
+        plot_orbit,
+    )
+else:
+    from .core import (
+        DEFAULT_FORMATS,
+        DEFAULT_FRAME,
+        DEFAULT_FRAME_BODY,
+        DEFAULT_PLANETS,
+        DEFAULT_START,
+        DEFAULT_STEP,
+        PlotRequest,
+        plot_orbit,
+    )
 
 
 class HelpFormatter(argparse.ArgumentDefaultsHelpFormatter, argparse.RawDescriptionHelpFormatter):
     """Show concrete defaults while preserving the examples block."""
 
 
-def build_parser() -> argparse.ArgumentParser:
-    """Build the `corotating-carousel` argument parser."""
+def build_parser(prog: str = "orbital-carousel") -> argparse.ArgumentParser:
+    """Build the command-line argument parser."""
 
     parser = argparse.ArgumentParser(
-        prog="corotating-carousel",
+        prog=prog,
         description="Plot a minor-body orbit in heliocentric or planet co-rotating coordinates.",
-        epilog="""Examples:
-  corotating-carousel "2015 DD349"
-  corotating-carousel "C/2014 OG392" --planets auto --format png
-  corotating-carousel "2000 OG44" --frame heliocentric --planets Venus,Earth,Mars,Jupiter
-  corotating-carousel "2010 RJ226" --frame-body Saturn --figsize 8 8 --output-dir plots
+        epilog=f"""Examples:
+  {prog} "2015 DD349"
+  {prog} "C/2014 OG392" --planets auto --format png
+  {prog} "2000 OG44" --frame heliocentric --planets Venus,Earth,Mars,Jupiter
+  {prog} "2010 RJ226" --frame-body Saturn --figsize 8 8 --output-dir plots
 """,
         formatter_class=HelpFormatter,
     )
@@ -143,7 +159,7 @@ def run(request: PlotRequest) -> list[Path]:
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the CLI."""
 
-    parser = build_parser()
+    parser = build_parser(prog=Path(sys.argv[0]).name if argv is None else "orbital-carousel")
     args = parser.parse_args(argv)
     try:
         output_paths = run(request_from_args(args))
