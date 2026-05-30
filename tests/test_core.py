@@ -2,6 +2,9 @@ import numpy as np
 
 import orbital_carousel.core as core
 from orbital_carousel.core import (
+    DEFAULT_LOCATIONS,
+    DEFAULT_START,
+    DEFAULT_STOP,
     DEFAULT_PLANETS,
     build_output_paths,
     max_heliocentric_distance,
@@ -105,3 +108,30 @@ def test_plot_orbit_uses_mocked_horizons_and_writes_requested_format(tmp_path, m
     assert paths[0].suffix == ".png"
     assert paths[0].exists()
     assert paths[0].stat().st_size > 0
+
+
+def test_plot_orbit_defaults_include_updated_dates_and_locations(tmp_path, monkeypatch):
+    import matplotlib
+
+    matplotlib.use("Agg", force=True)
+    requests = []
+
+    def fake_get_positions(object_name, epochs, locations=DEFAULT_LOCATIONS):
+        requests.append((object_name, locations, epochs["start"], epochs["stop"]))
+        return vectors([2.0, 3.0], [0.0, 1.0])
+
+    monkeypatch.setattr(core, "get_positions", fake_get_positions)
+
+    paths = core.plot_orbit(
+        "2015 DD349",
+        planets="Jupiter",
+        formats=("png",),
+        output_dir=tmp_path,
+    )
+
+    assert paths
+    object_requests = [call for call in requests if call[0] == "2015 DD349"]
+    assert len(object_requests) == 1
+    assert object_requests[0][1] == DEFAULT_LOCATIONS
+    assert object_requests[0][2] == DEFAULT_START
+    assert object_requests[0][3] == DEFAULT_STOP

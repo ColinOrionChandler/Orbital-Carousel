@@ -16,6 +16,7 @@ if __package__ in {None, ""}:
         DEFAULT_FRAME,
         DEFAULT_FRAME_BODY,
         DEFAULT_PLANETS,
+        DEFAULT_STOP,
         DEFAULT_START,
         DEFAULT_STEP,
         PlotRequest,
@@ -27,6 +28,7 @@ else:
         DEFAULT_FRAME,
         DEFAULT_FRAME_BODY,
         DEFAULT_PLANETS,
+        DEFAULT_STOP,
         DEFAULT_START,
         DEFAULT_STEP,
         PlotRequest,
@@ -56,8 +58,8 @@ def build_parser(prog: str = "orbital-carousel") -> argparse.ArgumentParser:
     parser.add_argument("--start", default=DEFAULT_START, help="Start date passed to Horizons vector queries.")
     parser.add_argument(
         "--stop",
-        default=argparse.SUPPRESS,
-        help="Stop date passed to Horizons vector queries. Defaults to today's UTC date.",
+        default=DEFAULT_STOP,
+        help="Stop date passed to Horizons vector queries. Defaults to 2030-01-01.",
     )
     parser.add_argument("--step", default=DEFAULT_STEP, help="Horizons vector-query step size.")
     parser.add_argument(

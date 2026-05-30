@@ -50,8 +50,10 @@ DEFAULT_PLANETS = tuple(PLANET_IDS)
 DEFAULT_FORMATS = ("pdf", "png")
 DEFAULT_FRAME = "corotating"
 DEFAULT_FRAME_BODY = "Jupiter"
-DEFAULT_START = "1800-01-01"
+DEFAULT_START = "2000-01-01"
+DEFAULT_STOP = "2030-01-01"
 DEFAULT_STEP = "30d"
+DEFAULT_LOCATIONS = "X05,705"
 
 
 @dataclass(frozen=True)
@@ -60,7 +62,7 @@ class PlotRequest:
 
     object_name: str
     start: str = DEFAULT_START
-    stop: str | None = None
+    stop: str = DEFAULT_STOP
     step: str = DEFAULT_STEP
     frame: str = DEFAULT_FRAME
     frame_body: str = DEFAULT_FRAME_BODY
@@ -96,10 +98,10 @@ def canonical_planet_name(name: str) -> str:
     raise ValueError(f"Unknown planet {name!r}; expected one of: {allowed}")
 
 
-def get_positions(object_name: str, epochs: Mapping[str, str]):
+def get_positions(object_name: str, epochs: Mapping[str, str], locations: str = DEFAULT_LOCATIONS):
     """Return JPL Horizons heliocentric vectors for an object over epochs."""
 
-    query = Horizons(id=object_name, location="500@10", epochs=dict(epochs))
+    query = Horizons(id=object_name, location=locations, epochs=dict(epochs))
     return query.vectors(cache=False)
 
 
@@ -243,7 +245,7 @@ def _plot_limit(target_x, target_y, planet_positions: Mapping[str, tuple[np.ndar
 def plot_orbit(
     object_name: str,
     start: str = DEFAULT_START,
-    stop: str | None = None,
+    stop: str = DEFAULT_STOP,
     step: str = DEFAULT_STEP,
     frame: str = DEFAULT_FRAME,
     frame_body: str = DEFAULT_FRAME_BODY,
@@ -262,7 +264,7 @@ def plot_orbit(
         raise ValueError("frame must be 'heliocentric' or 'corotating'")
     frame_body = canonical_planet_name(frame_body)
 
-    epochs = {"start": start, "stop": stop or current_utc_date(), "step": step}
+    epochs = {"start": start, "stop": stop, "step": step}
     target_vectors = get_positions(object_name, epochs)
     selected_planets = resolve_planets(
         planets,

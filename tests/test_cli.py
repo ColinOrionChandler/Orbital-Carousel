@@ -16,6 +16,8 @@ def test_parser_defaults_are_jupiter_corotating_all_planets():
     assert request.frame == "corotating"
     assert request.frame_body == "Jupiter"
     assert request.planets == "all"
+    assert request.start == "2000-01-01"
+    assert request.stop == "2030-01-01"
     assert request.formats == ("pdf", "png")
     assert request.output_dir is None
     assert request.figsize is None
@@ -50,11 +52,12 @@ def test_parser_accepts_repeated_formats_and_planet_overrides():
 
 def test_help_does_not_leak_derived_none_defaults():
     help_text = build_parser().format_help()
+    normalized_help = " ".join(help_text.split())
 
     assert "default: None" not in help_text
     assert "Defaults to ./<safe object" in help_text
     assert "name>/." in help_text
-    assert "today's UTC date." in help_text
+    assert "Defaults to 2030-01-01." in normalized_help
 
 
 def test_help_uses_requested_program_name():
