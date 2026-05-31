@@ -5,10 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 import datetime as dt
 from pathlib import Path
+import time
 from typing import Iterable, Mapping, Sequence
 
 import numpy as np
 from astroquery.jplhorizons import Horizons
+from requests import HTTPError
 
 PLANET_IDS: Mapping[str, str] = {
     "Mercury": "199",
@@ -53,7 +55,8 @@ DEFAULT_FRAME_BODY = "Jupiter"
 DEFAULT_START = "2000-01-01"
 DEFAULT_STOP = "2030-01-01"
 DEFAULT_STEP = "30d"
-DEFAULT_LOCATIONS = "X05,705"
+DEFAULT_LOCATIONS = "@sun"
+DEFAULT_HORIZONS_MAX_ATTEMPTS = 6
 
 
 @dataclass(frozen=True)
@@ -101,8 +104,16 @@ def canonical_planet_name(name: str) -> str:
 def get_positions(object_name: str, epochs: Mapping[str, str], locations: str = DEFAULT_LOCATIONS):
     """Return JPL Horizons heliocentric vectors for an object over epochs."""
 
-    query = Horizons(id=object_name, location=locations, epochs=dict(epochs))
-    return query.vectors(cache=False)
+    for attempt in range(1, DEFAULT_HORIZONS_MAX_ATTEMPTS + 1):
+        query = Horizons(id=object_name, location=locations, epochs=dict(epochs))
+        try:
+            return query.vectors(cache=False)
+        except HTTPError as exc:
+            status_code = exc.response.status_code if exc.response is not None else None
+            if status_code not in {429, 502, 503, 504} or attempt == DEFAULT_HORIZONS_MAX_ATTEMPTS:
+                raise
+            time.sleep(2 ** attempt)
+    raise RuntimeError("unreachable Horizons retry state")
 
 
 def _column_array(vectors, column: str) -> np.ndarray:
