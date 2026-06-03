@@ -16,8 +16,12 @@ def test_parser_defaults_are_jupiter_corotating_all_planets():
     assert request.frame == "corotating"
     assert request.frame_body == "Jupiter"
     assert request.planets == "all"
-    assert request.start == "2000-01-01"
-    assert request.stop == "2030-01-01"
+    assert request.start is None
+    assert request.stop is None
+    assert request.step is None
+    assert request.auto_epochs is True
+    assert request.orbits == 20
+    assert request.samples_per_orbit == 120
     assert request.formats == ("pdf", "png")
     assert request.output_dir is None
     assert request.figsize is None
@@ -50,6 +54,28 @@ def test_parser_accepts_repeated_formats_and_planet_overrides():
     assert request.figsize == (8.0, 6.0)
 
 
+def test_parser_accepts_manual_epoch_compatibility_mode():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "2019 OE31",
+            "--no-auto-epochs",
+            "--start",
+            "2000-01-01",
+            "--stop",
+            "2030-01-01",
+            "--step",
+            "30d",
+        ]
+    )
+    request = request_from_args(args)
+
+    assert request.auto_epochs is False
+    assert request.start == "2000-01-01"
+    assert request.stop == "2030-01-01"
+    assert request.step == "30d"
+
+
 def test_help_does_not_leak_derived_none_defaults():
     help_text = build_parser().format_help()
     normalized_help = " ".join(help_text.split())
@@ -57,7 +83,8 @@ def test_help_does_not_leak_derived_none_defaults():
     assert "default: None" not in help_text
     assert "Defaults to ./<safe object" in help_text
     assert "name>/." in help_text
-    assert "Defaults to 2030-01-01." in normalized_help
+    assert "Auto-derived when omitted." in normalized_help
+    assert "2019 OE31" in help_text
 
 
 def test_help_uses_requested_program_name():
@@ -65,6 +92,7 @@ def test_help_uses_requested_program_name():
 
     assert "usage: corotating-carousel" in help_text
     assert 'corotating-carousel "2015 DD349"' in help_text
+    assert 'corotating-carousel "2019 OE31" --planets auto --format png' in help_text
 
 
 def test_pyproject_installs_primary_and_legacy_commands():

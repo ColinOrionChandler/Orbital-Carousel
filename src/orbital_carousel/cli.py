@@ -12,10 +12,13 @@ if __package__ in {None, ""}:
     # package import below resolves the same way it does after installation.
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from orbital_carousel.core import (
+        DEFAULT_AUTO_EPOCHS,
         DEFAULT_FORMATS,
         DEFAULT_FRAME,
         DEFAULT_FRAME_BODY,
+        DEFAULT_ORBITS,
         DEFAULT_PLANETS,
+        DEFAULT_SAMPLES_PER_ORBIT,
         DEFAULT_STOP,
         DEFAULT_START,
         DEFAULT_STEP,
@@ -24,10 +27,13 @@ if __package__ in {None, ""}:
     )
 else:
     from .core import (
+        DEFAULT_AUTO_EPOCHS,
         DEFAULT_FORMATS,
         DEFAULT_FRAME,
         DEFAULT_FRAME_BODY,
+        DEFAULT_ORBITS,
         DEFAULT_PLANETS,
+        DEFAULT_SAMPLES_PER_ORBIT,
         DEFAULT_STOP,
         DEFAULT_START,
         DEFAULT_STEP,
@@ -48,6 +54,7 @@ def build_parser(prog: str = "orbital-carousel") -> argparse.ArgumentParser:
         description="Plot a minor-body orbit in heliocentric or planet co-rotating coordinates.",
         epilog=f"""Examples:
   {prog} "2015 DD349"
+  {prog} "2019 OE31" --planets auto --format png
   {prog} "C/2014 OG392" --planets auto --format png
   {prog} "2000 OG44" --frame heliocentric --planets Venus,Earth,Mars,Jupiter
   {prog} "2010 RJ226" --frame-body Saturn --figsize 8 8 --output-dir plots
@@ -55,13 +62,48 @@ def build_parser(prog: str = "orbital-carousel") -> argparse.ArgumentParser:
         formatter_class=HelpFormatter,
     )
     parser.add_argument("object_name", help="Target object name or designation for JPL Horizons.")
-    parser.add_argument("--start", default=DEFAULT_START, help="Start date passed to Horizons vector queries.")
+    parser.add_argument(
+        "--start",
+        default=argparse.SUPPRESS,
+        help="Start date passed to Horizons vector queries. Auto-derived when omitted.",
+    )
     parser.add_argument(
         "--stop",
-        default=DEFAULT_STOP,
-        help="Stop date passed to Horizons vector queries. Defaults to 2030-01-01.",
+        default=argparse.SUPPRESS,
+        help="Stop date passed to Horizons vector queries. Auto-derived when omitted.",
     )
-    parser.add_argument("--step", default=DEFAULT_STEP, help="Horizons vector-query step size.")
+    parser.add_argument(
+        "--step",
+        default=argparse.SUPPRESS,
+        help="Horizons vector-query step size. Auto-derived when omitted.",
+    )
+    epoch_group = parser.add_mutually_exclusive_group()
+    epoch_group.add_argument(
+        "--auto-epochs",
+        dest="auto_epochs",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help="Scale missing start, stop, and step values from the target orbital period. Enabled by default.",
+    )
+    epoch_group.add_argument(
+        "--no-auto-epochs",
+        dest="auto_epochs",
+        action="store_false",
+        default=argparse.SUPPRESS,
+        help=f"Use fixed missing-epoch defaults: {DEFAULT_START} to {DEFAULT_STOP} at {DEFAULT_STEP}.",
+    )
+    parser.add_argument(
+        "--orbits",
+        type=float,
+        default=DEFAULT_ORBITS,
+        help="Target orbit count for auto-derived date spans.",
+    )
+    parser.add_argument(
+        "--samples-per-orbit",
+        type=float,
+        default=DEFAULT_SAMPLES_PER_ORBIT,
+        help="Sampling density for auto-derived step sizes.",
+    )
     parser.add_argument(
         "--frame",
         choices=("heliocentric", "corotating"),
@@ -123,9 +165,9 @@ def request_from_args(args: argparse.Namespace) -> PlotRequest:
     figsize = tuple(args.figsize) if hasattr(args, "figsize") else None
     return PlotRequest(
         object_name=args.object_name,
-        start=args.start,
+        start=getattr(args, "start", None),
         stop=getattr(args, "stop", None),
-        step=args.step,
+        step=getattr(args, "step", None),
         frame=args.frame,
         frame_body=args.frame_body,
         planets=args.planets,
@@ -135,6 +177,9 @@ def request_from_args(args: argparse.Namespace) -> PlotRequest:
         show=args.show,
         include_planets=tuple(getattr(args, "include_planet", ())),
         exclude_planets=tuple(getattr(args, "exclude_planet", ())),
+        auto_epochs=getattr(args, "auto_epochs", DEFAULT_AUTO_EPOCHS),
+        orbits=args.orbits,
+        samples_per_orbit=args.samples_per_orbit,
     )
 
 
@@ -155,6 +200,9 @@ def run(request: PlotRequest) -> list[Path]:
         show=request.show,
         include_planets=request.include_planets,
         exclude_planets=request.exclude_planets,
+        auto_epochs=request.auto_epochs,
+        orbits=request.orbits,
+        samples_per_orbit=request.samples_per_orbit,
     )
 
 

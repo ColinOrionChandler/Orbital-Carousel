@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import datetime as dt
+import math
 from pathlib import Path
 import time
 from typing import Iterable, Mapping, Sequence
@@ -57,6 +58,11 @@ DEFAULT_STOP = "2030-01-01"
 DEFAULT_STEP = "30d"
 DEFAULT_LOCATIONS = "@sun"
 DEFAULT_HORIZONS_MAX_ATTEMPTS = 6
+DEFAULT_AUTO_EPOCHS = True
+DEFAULT_ORBITS = 20
+DEFAULT_SAMPLES_PER_ORBIT = 120
+_RETRYABLE_HORIZONS_STATUSES = {429, 502, 503, 504}
+_PERIOD_COLUMNS = ("P", "period", "per")
 
 
 @dataclass(frozen=True)
@@ -64,9 +70,9 @@ class PlotRequest:
     """Resolved plot settings used by the CLI and the library entry point."""
 
     object_name: str
-    start: str = DEFAULT_START
-    stop: str = DEFAULT_STOP
-    step: str = DEFAULT_STEP
+    start: str | None = None
+    stop: str | None = None
+    step: str | None = None
     frame: str = DEFAULT_FRAME
     frame_body: str = DEFAULT_FRAME_BODY
     planets: str | Sequence[str] = "all"
@@ -76,6 +82,9 @@ class PlotRequest:
     show: bool = False
     include_planets: Sequence[str] = ()
     exclude_planets: Sequence[str] = ()
+    auto_epochs: bool = DEFAULT_AUTO_EPOCHS
+    orbits: float = DEFAULT_ORBITS
+    samples_per_orbit: float = DEFAULT_SAMPLES_PER_ORBIT
 
 
 def current_utc_date() -> str:
@@ -101,6 +110,11 @@ def canonical_planet_name(name: str) -> str:
     raise ValueError(f"Unknown planet {name!r}; expected one of: {allowed}")
 
 
+def _should_retry_horizons_http_error(exc: HTTPError, attempt: int) -> bool:
+    status_code = exc.response.status_code if exc.response is not None else None
+    return status_code in _RETRYABLE_HORIZONS_STATUSES and attempt < DEFAULT_HORIZONS_MAX_ATTEMPTS
+
+
 def get_positions(object_name: str, epochs: Mapping[str, str], locations: str = DEFAULT_LOCATIONS):
     """Return JPL Horizons heliocentric vectors for an object over epochs."""
 
@@ -109,11 +123,150 @@ def get_positions(object_name: str, epochs: Mapping[str, str], locations: str = 
         try:
             return query.vectors(cache=False)
         except HTTPError as exc:
-            status_code = exc.response.status_code if exc.response is not None else None
-            if status_code not in {429, 502, 503, 504} or attempt == DEFAULT_HORIZONS_MAX_ATTEMPTS:
+            if not _should_retry_horizons_http_error(exc, attempt):
                 raise
             time.sleep(2 ** attempt)
     raise RuntimeError("unreachable Horizons retry state")
+
+
+def _julian_day_for_date(date: dt.date) -> float:
+    """Return the Julian Date at 00:00 UTC for a Gregorian calendar date."""
+
+    month = date.month
+    year = date.year
+    adjustment = (14 - month) // 12
+    adjusted_year = year + 4800 - adjustment
+    adjusted_month = month + 12 * adjustment - 3
+    julian_day_number = (
+        date.day
+        + ((153 * adjusted_month + 2) // 5)
+        + 365 * adjusted_year
+        + adjusted_year // 4
+        - adjusted_year // 100
+        + adjusted_year // 400
+        - 32045
+    )
+    return julian_day_number - 0.5
+
+
+def _parse_iso_date(value: str, field_name: str) -> dt.date:
+    try:
+        return dt.date.fromisoformat(value)
+    except ValueError:
+        raise ValueError(
+            f"{field_name} must be an ISO date (YYYY-MM-DD) when auto epochs derive a date; got {value!r}"
+        ) from None
+
+
+def get_elements(object_name: str, locations: str = DEFAULT_LOCATIONS):
+    """Return JPL Horizons orbital elements for an object at the current UTC date."""
+
+    epoch = _julian_day_for_date(_parse_iso_date(current_utc_date(), "current UTC date"))
+    for attempt in range(1, DEFAULT_HORIZONS_MAX_ATTEMPTS + 1):
+        query = Horizons(id=object_name, location=locations, epochs=epoch)
+        try:
+            return query.elements(cache=False)
+        except HTTPError as exc:
+            if not _should_retry_horizons_http_error(exc, attempt):
+                raise
+            time.sleep(2 ** attempt)
+    raise RuntimeError("unreachable Horizons retry state")
+
+
+def _first_column_value(values):
+    if isinstance(values, (str, bytes)):
+        return values
+    try:
+        if len(values) == 0:
+            return None
+    except TypeError:
+        return values
+    try:
+        return values[0]
+    except (IndexError, KeyError, TypeError):
+        return values
+
+
+def _finite_positive_float(value, name: str) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = math.nan
+    if not math.isfinite(number) or number <= 0:
+        raise ValueError(f"{name} must be a finite positive number")
+    return number
+
+
+def _extract_orbital_period_days(elements, object_name: str) -> float:
+    for column in _PERIOD_COLUMNS:
+        try:
+            values = elements[column]
+        except (KeyError, TypeError, ValueError):
+            continue
+        value = _first_column_value(values)
+        try:
+            period_days = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(period_days) and period_days > 0:
+            return period_days
+    raise ValueError(
+        f"Could not resolve a finite orbital period for {object_name!r}; "
+        "supply explicit start, stop, and step values or rerun with --no-auto-epochs."
+    )
+
+
+def get_orbital_period_days(object_name: str, locations: str = DEFAULT_LOCATIONS) -> float:
+    """Return the target's finite sidereal orbital period in Earth days."""
+
+    return _extract_orbital_period_days(get_elements(object_name, locations), object_name)
+
+
+def resolve_epochs(
+    object_name: str,
+    *,
+    start: str | None = None,
+    stop: str | None = None,
+    step: str | None = None,
+    auto_epochs: bool = DEFAULT_AUTO_EPOCHS,
+    orbits: float = DEFAULT_ORBITS,
+    samples_per_orbit: float = DEFAULT_SAMPLES_PER_ORBIT,
+) -> dict[str, str]:
+    """Resolve manual and orbit-scaled epoch settings into a Horizons epoch map."""
+
+    if not auto_epochs:
+        return {
+            "start": start or DEFAULT_START,
+            "stop": stop or DEFAULT_STOP,
+            "step": step or DEFAULT_STEP,
+        }
+
+    if start is not None and stop is not None and step is not None:
+        return {"start": start, "stop": stop, "step": step}
+
+    orbit_count = _finite_positive_float(orbits, "orbits")
+    sample_count = _finite_positive_float(samples_per_orbit, "samples_per_orbit")
+    period_days = _finite_positive_float(get_orbital_period_days(object_name), "orbital period")
+
+    if step is None:
+        step_days = max(1, math.ceil(period_days / sample_count))
+        step = f"{step_days}d"
+
+    if start is None or stop is None:
+        span_days = math.ceil(period_days * orbit_count)
+        if start is None and stop is None:
+            stop_date = _parse_iso_date(current_utc_date(), "current UTC date")
+            start_date = stop_date - dt.timedelta(days=span_days)
+        elif start is None:
+            stop_date = _parse_iso_date(stop, "stop")
+            start_date = stop_date - dt.timedelta(days=span_days)
+        else:
+            start_date = _parse_iso_date(start, "start")
+            stop_date = start_date + dt.timedelta(days=span_days)
+        start = start_date.isoformat()
+        stop = stop_date.isoformat()
+
+    return {"start": start, "stop": stop, "step": step}
 
 
 def _column_array(vectors, column: str) -> np.ndarray:
@@ -255,9 +408,9 @@ def _plot_limit(target_x, target_y, planet_positions: Mapping[str, tuple[np.ndar
 
 def plot_orbit(
     object_name: str,
-    start: str = DEFAULT_START,
-    stop: str = DEFAULT_STOP,
-    step: str = DEFAULT_STEP,
+    start: str | None = None,
+    stop: str | None = None,
+    step: str | None = None,
     frame: str = DEFAULT_FRAME,
     frame_body: str = DEFAULT_FRAME_BODY,
     planets: str | Sequence[str] = "all",
@@ -267,6 +420,9 @@ def plot_orbit(
     show: bool = False,
     include_planets: Sequence[str] = (),
     exclude_planets: Sequence[str] = (),
+    auto_epochs: bool = DEFAULT_AUTO_EPOCHS,
+    orbits: float = DEFAULT_ORBITS,
+    samples_per_orbit: float = DEFAULT_SAMPLES_PER_ORBIT,
 ) -> list[Path]:
     """Plot a minor-body orbit and return the written figure paths."""
 
@@ -275,7 +431,15 @@ def plot_orbit(
         raise ValueError("frame must be 'heliocentric' or 'corotating'")
     frame_body = canonical_planet_name(frame_body)
 
-    epochs = {"start": start, "stop": stop, "step": step}
+    epochs = resolve_epochs(
+        object_name,
+        start=start,
+        stop=stop,
+        step=step,
+        auto_epochs=auto_epochs,
+        orbits=orbits,
+        samples_per_orbit=samples_per_orbit,
+    )
     target_vectors = get_positions(object_name, epochs)
     selected_planets = resolve_planets(
         planets,

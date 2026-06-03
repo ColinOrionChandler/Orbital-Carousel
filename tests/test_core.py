@@ -1,3 +1,4 @@
+import pytest
 import numpy as np
 
 import orbital_carousel.core as core
@@ -9,6 +10,7 @@ from orbital_carousel.core import (
     build_output_paths,
     max_heliocentric_distance,
     normalize_formats,
+    resolve_epochs,
     resolve_planets,
     safe_object_name,
     transform_to_corotating_frame,
@@ -81,6 +83,68 @@ def test_max_heliocentric_distance_uses_xyz():
     assert np.isclose(max_heliocentric_distance(vectors([0.0, 3.0], [4.0, 0.0], [0.0, 12.0])), 12.36931687685298)
 
 
+def test_resolve_epochs_defaults_to_twenty_orbits_ending_today(monkeypatch):
+    monkeypatch.setattr(core, "current_utc_date", lambda: "2026-06-03")
+    monkeypatch.setattr(core, "get_orbital_period_days", lambda object_name: 3348.287200520034)
+
+    epochs = resolve_epochs("2019 OE31")
+
+    assert epochs == {"start": "1843-01-28", "stop": "2026-06-03", "step": "28d"}
+
+
+def test_resolve_epochs_derives_stop_from_explicit_start(monkeypatch):
+    monkeypatch.setattr(core, "get_orbital_period_days", lambda object_name: 10.0)
+
+    epochs = resolve_epochs("Test Object", start="2020-01-01", orbits=2, samples_per_orbit=5)
+
+    assert epochs == {"start": "2020-01-01", "stop": "2020-01-21", "step": "2d"}
+
+
+def test_resolve_epochs_derives_start_from_explicit_stop_and_preserves_step(monkeypatch):
+    monkeypatch.setattr(core, "get_orbital_period_days", lambda object_name: 10.0)
+
+    epochs = resolve_epochs("Test Object", stop="2020-01-21", step="5d", orbits=2)
+
+    assert epochs == {"start": "2020-01-01", "stop": "2020-01-21", "step": "5d"}
+
+
+def test_resolve_epochs_keeps_all_explicit_epoch_fields_without_period_lookup(monkeypatch):
+    def fail_period_lookup(object_name):
+        raise AssertionError("period lookup should not be needed")
+
+    monkeypatch.setattr(core, "get_orbital_period_days", fail_period_lookup)
+
+    epochs = resolve_epochs("Open Orbit", start="2020-01-01", stop="2020-02-01", step="7d")
+
+    assert epochs == {"start": "2020-01-01", "stop": "2020-02-01", "step": "7d"}
+
+
+def test_resolve_epochs_no_auto_uses_fixed_defaults():
+    epochs = resolve_epochs("Open Orbit", auto_epochs=False)
+
+    assert epochs == {"start": DEFAULT_START, "stop": DEFAULT_STOP, "step": "30d"}
+
+
+def test_resolve_epochs_rejects_non_finite_period_when_fields_are_missing(monkeypatch):
+    monkeypatch.setattr(core, "get_orbital_period_days", lambda object_name: float("nan"))
+
+    with pytest.raises(ValueError, match="orbital period"):
+        resolve_epochs("Open Orbit")
+
+
+def test_get_orbital_period_days_accepts_period_column_aliases(monkeypatch):
+    monkeypatch.setattr(core, "get_elements", lambda object_name, locations=DEFAULT_LOCATIONS: {"period": [12.5]})
+
+    assert core.get_orbital_period_days("2019 OE31") == 12.5
+
+
+def test_get_orbital_period_days_rejects_missing_period(monkeypatch):
+    monkeypatch.setattr(core, "get_elements", lambda object_name, locations=DEFAULT_LOCATIONS: {"e": [1.1]})
+
+    with pytest.raises(ValueError, match="finite orbital period"):
+        core.get_orbital_period_days("Open Orbit")
+
+
 def test_plot_orbit_uses_mocked_horizons_and_writes_requested_format(tmp_path, monkeypatch):
     import matplotlib
 
@@ -117,21 +181,24 @@ def test_plot_orbit_defaults_include_updated_dates_and_locations(tmp_path, monke
     requests = []
 
     def fake_get_positions(object_name, epochs, locations=DEFAULT_LOCATIONS):
-        requests.append((object_name, locations, epochs["start"], epochs["stop"]))
+        requests.append((object_name, locations, epochs["start"], epochs["stop"], epochs["step"]))
         return vectors([2.0, 3.0], [0.0, 1.0])
 
     monkeypatch.setattr(core, "get_positions", fake_get_positions)
+    monkeypatch.setattr(core, "current_utc_date", lambda: "2026-06-03")
+    monkeypatch.setattr(core, "get_orbital_period_days", lambda object_name: 3348.287200520034)
 
     paths = core.plot_orbit(
-        "2015 DD349",
+        "2019 OE31",
         planets="Jupiter",
         formats=("png",),
         output_dir=tmp_path,
     )
 
     assert paths
-    object_requests = [call for call in requests if call[0] == "2015 DD349"]
+    object_requests = [call for call in requests if call[0] == "2019 OE31"]
     assert len(object_requests) == 1
     assert object_requests[0][1] == DEFAULT_LOCATIONS
-    assert object_requests[0][2] == DEFAULT_START
-    assert object_requests[0][3] == DEFAULT_STOP
+    assert object_requests[0][2] == "1843-01-28"
+    assert object_requests[0][3] == "2026-06-03"
+    assert object_requests[0][4] == "28d"
