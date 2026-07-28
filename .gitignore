@@ -13,4 +13,9 @@ dist/
 *.pdf
 *.png
 
+# Large local JPL/ASSIST ephemeris kernels.
+*.bsp
+*.440
+*.441
+
 .DS_Store

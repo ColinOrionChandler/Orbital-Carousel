@@ -14,6 +14,7 @@ if __package__ in {None, ""}:
     from orbital_carousel.core import (
         DEFAULT_AUTO_EPOCHS,
         DEFAULT_FORMATS,
+        DEFAULT_EPHEMERIS,
         DEFAULT_FRAME,
         DEFAULT_FRAME_BODY,
         DEFAULT_ORBITS,
@@ -29,6 +30,7 @@ else:
     from .core import (
         DEFAULT_AUTO_EPOCHS,
         DEFAULT_FORMATS,
+        DEFAULT_EPHEMERIS,
         DEFAULT_FRAME,
         DEFAULT_FRAME_BODY,
         DEFAULT_ORBITS,
@@ -58,6 +60,8 @@ def build_parser(prog: str = "orbital-carousel") -> argparse.ArgumentParser:
   {prog} "C/2014 OG392" --planets auto --format png
   {prog} "2000 OG44" --frame heliocentric --planets Venus,Earth,Mars,Jupiter
   {prog} "2010 RJ226" --frame-body Saturn --figsize 8 8 --output-dir plots
+  {prog} "2015 DD349" --frame-body Jupiter --frame-body Saturn --format png
+  {prog} "2025 NN80" --ephemeris assist --format png
 """,
         formatter_class=HelpFormatter,
     )
@@ -65,17 +69,46 @@ def build_parser(prog: str = "orbital-carousel") -> argparse.ArgumentParser:
     parser.add_argument(
         "--start",
         default=argparse.SUPPRESS,
-        help="Start date passed to Horizons vector queries. Auto-derived when omitted.",
+        help=(
+            "Start date as YYYY-MM-DD, a signed astronomical year date, or "
+            "JD<number>. Auto-derived when omitted."
+        ),
     )
     parser.add_argument(
         "--stop",
         default=argparse.SUPPRESS,
-        help="Stop date passed to Horizons vector queries. Auto-derived when omitted.",
+        help=(
+            "Stop date as YYYY-MM-DD, a signed astronomical year date, or "
+            "JD<number>. Auto-derived when omitted."
+        ),
     )
     parser.add_argument(
         "--step",
         default=argparse.SUPPRESS,
-        help="Horizons vector-query step size. Auto-derived when omitted.",
+        help="Ephemeris output step size. Auto-derived when omitted.",
+    )
+    parser.add_argument(
+        "--ephemeris",
+        choices=("horizons", "assist"),
+        default=DEFAULT_EPHEMERIS,
+        help="Trajectory backend. ASSIST requires local extended DE441 data.",
+    )
+    parser.add_argument(
+        "--assist-data-dir",
+        type=Path,
+        default=argparse.SUPPRESS,
+        help=(
+            "Directory containing extended DE441 and sb441-n16.bsp. "
+            "Defaults to ASSIST_DIR."
+        ),
+    )
+    parser.add_argument(
+        "--integration-epoch",
+        default=argparse.SUPPRESS,
+        help=(
+            "Horizons seed-state epoch for ASSIST as YYYY-MM-DD, a signed "
+            "astronomical year date, or JD<number>. Defaults to today's date."
+        ),
     )
     epoch_group = parser.add_mutually_exclusive_group()
     epoch_group.add_argument(
@@ -112,9 +145,13 @@ def build_parser(prog: str = "orbital-carousel") -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--frame-body",
-        choices=DEFAULT_PLANETS,
-        default=DEFAULT_FRAME_BODY,
-        help="Planet used as the fixed +x direction for co-rotating plots.",
+        action="append",
+        default=argparse.SUPPRESS,
+        help=(
+            "Planet used as the fixed +x direction for co-rotating plots. "
+            "May be repeated or comma-separated. Defaults to "
+            f"{DEFAULT_FRAME_BODY}. Choices: {', '.join(DEFAULT_PLANETS)}."
+        ),
     )
     parser.add_argument(
         "--planets",
@@ -169,7 +206,7 @@ def request_from_args(args: argparse.Namespace) -> PlotRequest:
         stop=getattr(args, "stop", None),
         step=getattr(args, "step", None),
         frame=args.frame,
-        frame_body=args.frame_body,
+        frame_body=tuple(args.frame_body) if hasattr(args, "frame_body") else DEFAULT_FRAME_BODY,
         planets=args.planets,
         formats=tuple(getattr(args, "formats", DEFAULT_FORMATS)),
         output_dir=getattr(args, "output_dir", None),
@@ -180,6 +217,9 @@ def request_from_args(args: argparse.Namespace) -> PlotRequest:
         auto_epochs=getattr(args, "auto_epochs", DEFAULT_AUTO_EPOCHS),
         orbits=args.orbits,
         samples_per_orbit=args.samples_per_orbit,
+        ephemeris=args.ephemeris,
+        assist_data_dir=getattr(args, "assist_data_dir", None),
+        integration_epoch=getattr(args, "integration_epoch", None),
     )
 
 
@@ -203,6 +243,9 @@ def run(request: PlotRequest) -> list[Path]:
         auto_epochs=request.auto_epochs,
         orbits=request.orbits,
         samples_per_orbit=request.samples_per_orbit,
+        ephemeris=request.ephemeris,
+        assist_data_dir=request.assist_data_dir,
+        integration_epoch=request.integration_epoch,
     )
 
 
