@@ -1,32 +1,127 @@
-[build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
 
 [project]
 name = "orbital-carousel"
-version = "0.1.0"
-description = "Plot minor-body orbits in heliocentric and planet co-rotating reference frames."
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 readme = "README.md"
-requires-python = ">=3.9"
+authors = [
+    { name = "Colin Orion Chandler", email = "orion@nau.edu" }
+]
+description = "Plot minor-body orbits in heliocentric and planet co-rotating reference frames."
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python",
+]
+dynamic = ["version"]
+requires-python = ">=3.11"
 dependencies = [
     "astropy>=6",
-    "astroquery>=0.4",
+    "astroquery>=0.4.7",
     "matplotlib>=3.7",
-    "numpy>=1.23",
+    "numpy>=1.23.5",
+    "requests>=2.31",
 ]
 
+[project.urls]
+"Source Code" = "https://github.com/ColinOrionChandler/Orbital-Carousel"
+
+# On a mac, install optional dependencies with `pip install '.[dev]'` (include the single quotes)
 [project.optional-dependencies]
-test = [
-    "pytest>=7",
+test = ["pytest>=7", "pytest-cov"]
+integrator = ["assist>=1.1.11", "rebound>=4.4"]
+dev = [
+    "build",
+    "twine",
+    "pre-commit", # Used to run checks before finalizing a git commit
+    "pytest",
+    "pytest-cov", # Used to report total code coverage
+    "ruff==0.14.0", # Used for static linting of files
 ]
-integrator = [
-    "assist>=1.1.11",
-    "rebound>=4.4",
-]
-
+# Command-line scripts that can be run after installing the package
 [project.scripts]
 orbital-carousel = "orbital_carousel.cli:main"
 corotating-carousel = "orbital_carousel.cli:main"
 
+[build-system]
+requires = [
+    "setuptools>=77.0.3", # Used to build and package the Python project
+    "setuptools_scm>=8", # Gets release version from git. Makes it available programmatically
+]
+build-backend = "setuptools.build_meta"
+
 [tool.setuptools.packages.find]
 where = ["src"]
+include = ["orbital_carousel*"]
+
+[tool.setuptools_scm]
+version_file = "src/orbital_carousel/_version.py"
+fallback_version = "0.1.dev0"
+# Indexes reject local (+hash) version suffixes, including TestPyPI rehearsals.
+local_scheme = "no-local-version"
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+]
+addopts = "-ra"
+log_cli_level = "INFO"
+
+[tool.ruff]
+target-version = "py311"
+extend-exclude = ["src/orbital_carousel/_version.py"]
+line-length = 110
+[tool.ruff.lint]
+select = [
+    # pycodestyle
+    "E",
+    "W",
+    # Pyflakes
+    "F",
+    # pep8-naming
+    "N",
+    # pyupgrade
+    "UP",
+    # flake8-bugbear
+    "B",
+    # flake8-simplify
+    "SIM",
+    # isort
+    "I",
+    # docstrings
+    "D101",
+    "D102",
+    "D103",
+    "D106",
+    "D206",
+    "D207",
+    "D208",
+    "D300",
+    "D417",
+    "D419",
+    # Numpy v2.0 compatibility
+    "NPY201",
+    ]
+ignore = [
+    "UP006", # Allow non standard library generics in type hints
+    "UP007", # Allow Union in type hints
+    "SIM114", # Allow if with same arms
+    "B028", # Allow default warning level
+    "SIM117", # Allow nested with
+    "UP015", # Allow redundant open parameters
+    "UP028", # Allow yield in for loop
+]
+
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "N802", "N803", "N806"]
+
+[tool.coverage.run]
+source = ["orbital_carousel"]
+omit=["src/orbital_carousel/_version.py"]

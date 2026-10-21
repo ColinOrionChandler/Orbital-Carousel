@@ -19,3 +19,14 @@ dist/
 *.441
 
 .DS_Store
+
+# Template tooling and generated version metadata.
+src/orbital_carousel/_version.py
+.ruff_cache/
+.pre-commit-cache/
+.venv/
+coverage.xml
+.coverage.*
+docs/_build/
+docs/autoapi/
+.initialize_new_project.sh
