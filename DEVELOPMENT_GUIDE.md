@@ -44,13 +44,14 @@ Use Copier 9.1 or newer. Start from a clean feature branch:
 
 ```bash
 git switch -c codex/update-lincc-template
-copier update --vcs-ref <reviewed-template-tag> .
+bash .update_template.sh --vcs-ref <reviewed-template-tag>
 git diff
 ```
 
 Resolve every conflict and `.rej` file, then run the checks above. For a same-version
-compatibility check, use `copier update --defaults --vcs-ref v2.3.0 .` in a disposable
-clone. The version notification hook may announce a newer release without changing
+compatibility check, use `bash .update_template.sh --defaults --vcs-ref v2.3.0` in a disposable
+clone. The wrapper excludes two notebook placeholder directories that v2.3.0
+otherwise recreates even with notebooks disabled. The version notification hook may announce a newer release without changing
 the pinned template. Update answers through Copier rather than editing them manually.
 
 Project-specific customizations that must survive updates:

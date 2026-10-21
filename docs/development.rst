@@ -30,7 +30,9 @@ Template updates
 
 The repository tracks LINCC Frameworks Python Project Template v2.3.0 through
 Copier's answer file. Use Copier 9.1+ on a clean feature branch, pin the reviewed
-template tag, inspect changes and conflicts, then repeat the checks above.
+template tag with ``bash .update_template.sh --vcs-ref <tag>``, inspect changes
+and conflicts, then repeat the checks above. The wrapper excludes unused notebook
+placeholder directories.
 Preserve the public package, both CLI names, optional extras, scientific defaults,
 product exclusions, and project-specific CI behavior.
 
