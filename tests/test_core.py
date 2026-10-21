@@ -1,14 +1,15 @@
-import pytest
-import numpy as np
 import sys
 from types import SimpleNamespace
+
+import numpy as np
+import pytest
 
 import orbital_carousel.core as core
 from orbital_carousel.core import (
     DEFAULT_LOCATIONS,
+    DEFAULT_PLANETS,
     DEFAULT_START,
     DEFAULT_STOP,
-    DEFAULT_PLANETS,
     AssistEphemerisProvider,
     build_epoch_grid,
     build_output_paths,
@@ -66,10 +67,7 @@ def test_build_output_paths_marks_assist_without_changing_horizons_names():
         ephemeris="assist",
     )
 
-    assert paths[0].name == (
-        "2025_NN80_-1266-01-27_to_2026-07-24_"
-        "502d_step_assist_corotating_Jupiter.png"
-    )
+    assert paths[0].name == ("2025_NN80_-1266-01-27_to_2026-07-24_502d_step_assist_corotating_Jupiter.png")
 
 
 def test_normalize_formats_deduplicates_user_formats():
@@ -121,7 +119,9 @@ def test_planet_selection_include_and_exclude_controls():
 
 
 def test_max_heliocentric_distance_uses_xyz():
-    assert np.isclose(max_heliocentric_distance(vectors([0.0, 3.0], [4.0, 0.0], [0.0, 12.0])), 12.36931687685298)
+    assert np.isclose(
+        max_heliocentric_distance(vectors([0.0, 3.0], [4.0, 0.0], [0.0, 12.0])), 12.36931687685298
+    )
 
 
 def test_resolve_epochs_defaults_to_twenty_orbits_ending_today(monkeypatch):
@@ -227,7 +227,9 @@ def test_epoch_grid_rejects_non_time_assist_step():
 
 
 def test_get_orbital_period_days_accepts_period_column_aliases(monkeypatch):
-    monkeypatch.setattr(core, "get_elements", lambda object_name, locations=DEFAULT_LOCATIONS: {"period": [12.5]})
+    monkeypatch.setattr(
+        core, "get_elements", lambda object_name, locations=DEFAULT_LOCATIONS: {"period": [12.5]}
+    )
 
     assert core.get_orbital_period_days("2019 OE31") == 12.5
 

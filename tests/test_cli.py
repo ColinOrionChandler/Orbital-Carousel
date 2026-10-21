@@ -4,7 +4,6 @@ from pathlib import Path
 
 from orbital_carousel.cli import build_parser, request_from_args
 
-
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -136,7 +135,9 @@ def test_help_uses_requested_program_name():
     assert "usage: corotating-carousel" in help_text
     assert 'corotating-carousel "2015 DD349"' in help_text
     assert 'corotating-carousel "2019 OE31" --planets auto --format png' in help_text
-    assert 'corotating-carousel "2015 DD349" --frame-body Jupiter --frame-body Saturn --format png' in help_text
+    assert (
+        'corotating-carousel "2015 DD349" --frame-body Jupiter --frame-body Saturn --format png' in help_text
+    )
     assert 'corotating-carousel "2025 NN80" --ephemeris assist --format png' in help_text
 
 

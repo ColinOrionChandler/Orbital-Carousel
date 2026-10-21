@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 if __package__ in {None, ""}:
     # Direct file execution starts on src/orbital_carousel; add src/ so the
@@ -13,32 +13,32 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from orbital_carousel.core import (
         DEFAULT_AUTO_EPOCHS,
-        DEFAULT_FORMATS,
         DEFAULT_EPHEMERIS,
+        DEFAULT_FORMATS,
         DEFAULT_FRAME,
         DEFAULT_FRAME_BODY,
         DEFAULT_ORBITS,
         DEFAULT_PLANETS,
         DEFAULT_SAMPLES_PER_ORBIT,
-        DEFAULT_STOP,
         DEFAULT_START,
         DEFAULT_STEP,
+        DEFAULT_STOP,
         PlotRequest,
         plot_orbit,
     )
 else:
     from .core import (
         DEFAULT_AUTO_EPOCHS,
-        DEFAULT_FORMATS,
         DEFAULT_EPHEMERIS,
+        DEFAULT_FORMATS,
         DEFAULT_FRAME,
         DEFAULT_FRAME_BODY,
         DEFAULT_ORBITS,
         DEFAULT_PLANETS,
         DEFAULT_SAMPLES_PER_ORBIT,
-        DEFAULT_STOP,
         DEFAULT_START,
         DEFAULT_STEP,
+        DEFAULT_STOP,
         PlotRequest,
         plot_orbit,
     )
@@ -97,10 +97,7 @@ def build_parser(prog: str = "orbital-carousel") -> argparse.ArgumentParser:
         "--assist-data-dir",
         type=Path,
         default=argparse.SUPPRESS,
-        help=(
-            "Directory containing extended DE441 and sb441-n16.bsp. "
-            "Defaults to ASSIST_DIR."
-        ),
+        help=("Directory containing extended DE441 and sb441-n16.bsp. Defaults to ASSIST_DIR."),
     )
     parser.add_argument(
         "--integration-epoch",

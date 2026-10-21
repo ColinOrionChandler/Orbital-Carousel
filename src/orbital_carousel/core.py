@@ -2,15 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import datetime as dt
 import math
 import os
-from pathlib import Path
 import re
 import time
-from typing import Iterable, Mapping, Sequence
 import warnings
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 from astropy.time import Time, TimeDelta
@@ -70,14 +70,8 @@ _RETRYABLE_HORIZONS_STATUSES = {429, 502, 503, 504}
 _PERIOD_COLUMNS = ("P", "period", "per")
 _ASSIST_PLANET_FILENAMES = ("de441.bsp", "linux_m13000p17000.441")
 _ASSIST_ASTEROID_FILENAME = "sb441-n16.bsp"
-_ASSIST_PLANET_URL = (
-    "https://ssd.jpl.nasa.gov/ftp/eph/planets/Linux/de441/"
-    "linux_m13000p17000.441"
-)
-_ASSIST_ASTEROID_URL = (
-    "https://ssd.jpl.nasa.gov/ftp/eph/small_bodies/asteroids_de441/"
-    "sb441-n16.bsp"
-)
+_ASSIST_PLANET_URL = "https://ssd.jpl.nasa.gov/ftp/eph/planets/Linux/de441/linux_m13000p17000.441"
+_ASSIST_ASTEROID_URL = "https://ssd.jpl.nasa.gov/ftp/eph/small_bodies/asteroids_de441/sb441-n16.bsp"
 _J2000_OBLIQUITY_RAD = math.radians(23.43929111111111)
 _JD_PATTERN = re.compile(r"^JD\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))$", re.IGNORECASE)
 _CALENDAR_PATTERN = re.compile(r"^([+-]?\d{4,})-(\d{2})-(\d{2})$")
@@ -130,7 +124,7 @@ class EpochGrid:
 def current_utc_date() -> str:
     """Return today's UTC date as a Horizons-friendly ISO date."""
 
-    return str(dt.datetime.now(dt.timezone.utc).date())
+    return str(dt.datetime.now(dt.UTC).date())
 
 
 def _is_gregorian_leap_year(year: int) -> bool:
@@ -202,8 +196,7 @@ def parse_epoch_jd(value: str, field_name: str = "epoch") -> float:
     calendar_match = _CALENDAR_PATTERN.fullmatch(text)
     if not calendar_match:
         raise ValueError(
-            f"{field_name} must be YYYY-MM-DD, a signed astronomical year date, "
-            f"or JD<number>; got {value!r}"
+            f"{field_name} must be YYYY-MM-DD, a signed astronomical year date, or JD<number>; got {value!r}"
         )
 
     year, month, day = (int(part) for part in calendar_match.groups())
@@ -263,7 +256,7 @@ def get_positions(object_name: str, epochs: Mapping[str, str], locations: str = 
         except HTTPError as exc:
             if not _should_retry_horizons_http_error(exc, attempt):
                 raise
-            time.sleep(2 ** attempt)
+            time.sleep(2**attempt)
     raise RuntimeError("unreachable Horizons retry state")
 
 
@@ -277,7 +270,7 @@ def get_barycentric_state(object_name: str, epoch_jd: float):
         except HTTPError as exc:
             if not _should_retry_horizons_http_error(exc, attempt):
                 raise
-            time.sleep(2 ** attempt)
+            time.sleep(2**attempt)
     raise RuntimeError("unreachable Horizons retry state")
 
 
@@ -392,7 +385,7 @@ def get_elements(object_name: str, locations: str = DEFAULT_LOCATIONS):
         except HTTPError as exc:
             if not _should_retry_horizons_http_error(exc, attempt):
                 raise
-            time.sleep(2 ** attempt)
+            time.sleep(2**attempt)
     raise RuntimeError("unreachable Horizons retry state")
 
 
@@ -479,19 +472,13 @@ def resolve_epochs(
         span_days = math.ceil(period_days * orbit_count)
         if start is None and stop is None:
             stop_jd = parse_epoch_jd(current_utc_date(), "current UTC date")
-            start_jd = float(
-                (Time(stop_jd, format="jd", scale="tdb") - TimeDelta(span_days, format="jd")).jd
-            )
+            start_jd = float((Time(stop_jd, format="jd", scale="tdb") - TimeDelta(span_days, format="jd")).jd)
         elif start is None:
             stop_jd = parse_epoch_jd(stop, "stop")
-            start_jd = float(
-                (Time(stop_jd, format="jd", scale="tdb") - TimeDelta(span_days, format="jd")).jd
-            )
+            start_jd = float((Time(stop_jd, format="jd", scale="tdb") - TimeDelta(span_days, format="jd")).jd)
         else:
             start_jd = parse_epoch_jd(start, "start")
-            stop_jd = float(
-                (Time(start_jd, format="jd", scale="tdb") + TimeDelta(span_days, format="jd")).jd
-            )
+            stop_jd = float((Time(start_jd, format="jd", scale="tdb") + TimeDelta(span_days, format="jd")).jd)
         start = format_epoch_date(start_jd)
         stop = format_epoch_date(stop_jd)
 
@@ -660,9 +647,11 @@ class HorizonsEphemerisProvider:
         self.epochs = epochs
 
     def target_vectors(self, object_name: str):
+        """Return heliocentric target vectors from Horizons."""
         return get_positions(object_name, self.epochs)
 
     def planet_vectors(self, planets: Iterable[str]) -> Mapping[str, Mapping[str, np.ndarray]]:
+        """Return heliocentric vectors for the requested planets."""
         selected = set(planets)
         return {
             planet: get_positions(PLANET_IDS[planet], self.epochs)
@@ -736,10 +725,7 @@ class AssistEphemerisProvider:
     def _load_seed_state(self, object_name: str) -> np.ndarray:
         state = get_barycentric_state(object_name, self.seed_jd)
         return np.asarray(
-            [
-                float(_column_array(state, column)[0])
-                for column in ("x", "y", "z", "vx", "vy", "vz")
-            ],
+            [float(_column_array(state, column)[0]) for column in ("x", "y", "z", "vx", "vy", "vz")],
             dtype=float,
         )
 
@@ -782,18 +768,18 @@ class AssistEphemerisProvider:
         return rows
 
     def target_vectors(self, object_name: str) -> Mapping[str, np.ndarray]:
+        """Integrate the target and return heliocentric ecliptic vectors."""
         target_barycentric = self._integrated_barycentric_rows(object_name)
         target_ecliptic = _icrf_to_ecliptic(target_barycentric)
         return _vector_mapping(target_ecliptic - self._sun_ecliptic)
 
     def planet_vectors(self, planets: Iterable[str]) -> Mapping[str, Mapping[str, np.ndarray]]:
+        """Return heliocentric vectors for the requested planets."""
         selected = set(planets)
         result = {}
         for planet in DEFAULT_PLANETS:
             if planet in selected:
-                result[planet] = _vector_mapping(
-                    self._sample_ephemeris_body(planet) - self._sun_ecliptic
-                )
+                result[planet] = _vector_mapping(self._sample_ephemeris_body(planet) - self._sun_ecliptic)
         return result
 
 
