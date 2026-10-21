@@ -1,0 +1,48 @@
+name: Publish to PyPI
+on:
+  release:
+    types: [published]
+permissions:
+  contents: read
+jobs:
+  validate-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - run: python -m pip install packaging
+      - name: Require a stable release from main, starting at v0.2.0
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          git merge-base --is-ancestor HEAD origin/main
+          python - <<'PYCODE'
+          import os
+          from packaging.version import Version
+          tag = os.environ['RELEASE_TAG']
+          version = Version(tag.removeprefix('v'))
+          assert tag == 'v' + str(version), 'Use a canonical v-prefixed version tag'
+          assert version >= Version('0.2.0') and not version.is_prerelease and not version.is_devrelease
+          PYCODE
+  build:
+    needs: validate-release
+    uses: ./.github/workflows/build-package.yml
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/orbital-carousel
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-distributions
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
