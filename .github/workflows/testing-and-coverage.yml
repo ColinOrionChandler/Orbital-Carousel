@@ -33,7 +33,7 @@ jobs:
         env:
           MPLBACKEND: Agg
           MPLCONFIGDIR: ${{ runner.temp }}/matplotlib
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: matrix.python == '3.12' && matrix.os == 'ubuntu-latest'
         with:
           name: coverage
