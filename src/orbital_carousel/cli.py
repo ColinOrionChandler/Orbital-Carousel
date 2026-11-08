@@ -13,8 +13,10 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from orbital_carousel.core import (
         DEFAULT_AUTO_EPOCHS,
+        DEFAULT_DURATION,
         DEFAULT_EPHEMERIS,
         DEFAULT_FORMATS,
+        DEFAULT_FPS,
         DEFAULT_FRAME,
         DEFAULT_FRAME_BODY,
         DEFAULT_ORBITS,
@@ -29,8 +31,10 @@ if __package__ in {None, ""}:
 else:
     from .core import (
         DEFAULT_AUTO_EPOCHS,
+        DEFAULT_DURATION,
         DEFAULT_EPHEMERIS,
         DEFAULT_FORMATS,
+        DEFAULT_FPS,
         DEFAULT_FRAME,
         DEFAULT_FRAME_BODY,
         DEFAULT_ORBITS,
@@ -62,6 +66,7 @@ def build_parser(prog: str = "orbital-carousel") -> argparse.ArgumentParser:
   {prog} "2010 RJ226" --frame-body Saturn --figsize 8 8 --output-dir plots
   {prog} "2015 DD349" --frame-body Jupiter --frame-body Saturn --format png
   {prog} "2025 NN80" --ephemeris assist --format png
+  {prog} "2013 BU1" --format mp4 --fps 24 --duration 30
 """,
         formatter_class=HelpFormatter,
     )
@@ -89,15 +94,15 @@ def build_parser(prog: str = "orbital-carousel") -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--ephemeris",
-        choices=("horizons", "assist"),
+        choices=("auto", "horizons", "assist"),
         default=DEFAULT_EPHEMERIS,
-        help="Trajectory backend. ASSIST requires local extended DE441 data.",
+        help="Auto tries Horizons, then ASSIST on a coverage limit. ASSIST requires local DE441 data.",
     )
     parser.add_argument(
         "--assist-data-dir",
         type=Path,
         default=argparse.SUPPRESS,
-        help=("Directory containing extended DE441 and sb441-n16.bsp. Defaults to ASSIST_DIR."),
+        help="Kernel directory. Defaults to ASSIST_DIR or ~/.cache/orbital-carousel/assist.",
     )
     parser.add_argument(
         "--integration-epoch",
@@ -171,9 +176,13 @@ def build_parser(prog: str = "orbital-carousel") -> argparse.ArgumentParser:
         "--format",
         dest="formats",
         action="append",
-        choices=("pdf", "png"),
+        choices=("pdf", "png", "mp4"),
         default=argparse.SUPPRESS,
-        help=f"Output figure format. Repeat to write both. Defaults to {', '.join(DEFAULT_FORMATS)}.",
+        help=f"Output format. Repeat for multiple products. Defaults to {', '.join(DEFAULT_FORMATS)}.",
+    )
+    parser.add_argument("--fps", type=int, default=DEFAULT_FPS, help="MP4 frames per second.")
+    parser.add_argument(
+        "--duration", type=float, default=DEFAULT_DURATION, help="Maximum MP4 length in seconds."
     )
     parser.add_argument(
         "--output-dir",
@@ -217,6 +226,8 @@ def request_from_args(args: argparse.Namespace) -> PlotRequest:
         ephemeris=args.ephemeris,
         assist_data_dir=getattr(args, "assist_data_dir", None),
         integration_epoch=getattr(args, "integration_epoch", None),
+        fps=args.fps,
+        duration=args.duration,
     )
 
 
@@ -243,6 +254,8 @@ def run(request: PlotRequest) -> list[Path]:
         ephemeris=request.ephemeris,
         assist_data_dir=request.assist_data_dir,
         integration_epoch=request.integration_epoch,
+        fps=request.fps,
+        duration=request.duration,
     )
 
 

@@ -2,7 +2,8 @@
 
 Plot small-body orbits in heliocentric or planet co-rotating reference frames.
 This package provides a command-line interface and a Python API, with Horizons
-vectors by default and optional ASSIST/REBOUND integration for long time spans.
+vectors by default. When the requested interval exceeds Horizons coverage, the
+CLI and Python API switch to the optional ASSIST/REBOUND long-span backend.
 
 ## Install
 
@@ -20,11 +21,16 @@ orbit, with Jupiter defining the co-rotating frame.
 ```bash
 orbital-carousel "2015 DD349" --frame-body Jupiter,Saturn --format png
 orbital-carousel "2000 OG44" --frame heliocentric --planets Venus,Earth,Mars,Jupiter
+orbital-carousel "2013 BU1" --format mp4 --fps 24 --duration 30
 python -m pip install -e '.[integrator]'  # Optional ASSIST/REBOUND backend
 ```
 
 ASSIST also requires external JPL kernels; see the [user guide](docs/usage.rst)
 for setup, epoch options, output naming, and scientific limitations.
+
+MP4 output requires FFmpeg with the libx264 encoder. The movie follows the
+object and planets through time as their paths grow. Repeat `--format` to save
+stills and a movie from the same ephemeris.
 
 ## Python API
 

@@ -6,6 +6,8 @@ import datetime as dt
 import math
 import os
 import re
+import subprocess
+import tempfile
 import time
 import warnings
 from collections.abc import Iterable, Mapping, Sequence
@@ -55,9 +57,11 @@ PLANET_NOMINAL_R_AU: Mapping[str, float] = {
 
 DEFAULT_PLANETS = tuple(PLANET_IDS)
 DEFAULT_FORMATS = ("pdf", "png")
+DEFAULT_FPS = 24
+DEFAULT_DURATION = 30.0
 DEFAULT_FRAME = "corotating"
 DEFAULT_FRAME_BODY = "Jupiter"
-DEFAULT_EPHEMERIS = "horizons"
+DEFAULT_EPHEMERIS = "auto"
 DEFAULT_START = "2000-01-01"
 DEFAULT_STOP = "2030-01-01"
 DEFAULT_STEP = "30d"
@@ -109,6 +113,8 @@ class PlotRequest:
     ephemeris: str = DEFAULT_EPHEMERIS
     assist_data_dir: Path | str | None = None
     integration_epoch: str | None = None
+    fps: int = DEFAULT_FPS
+    duration: float = DEFAULT_DURATION
 
 
 @dataclass(frozen=True)
@@ -595,11 +601,7 @@ def resolve_assist_data_paths(
     if configured_dir is None:
         configured_dir = os.environ.get("ASSIST_DIR")
     if not configured_dir:
-        raise ValueError(
-            "ASSIST data directory is not configured. Pass --assist-data-dir or set "
-            "ASSIST_DIR to a directory containing linux_m13000p17000.441 (or "
-            "de441.bsp) and sb441-n16.bsp."
-        )
+        configured_dir = Path.home() / ".cache" / "orbital-carousel" / "assist"
 
     data_dir = Path(configured_dir).expanduser()
     planet_path = next(
@@ -615,6 +617,7 @@ def resolve_assist_data_paths(
     if missing:
         raise ValueError(
             f"ASSIST data directory {data_dir} is missing {', '.join(missing)}. "
+            "Pass --assist-data-dir or set ASSIST_DIR to select another directory. "
             f"Planet ephemeris: {_ASSIST_PLANET_URL} ; asteroid ephemeris: "
             f"{_ASSIST_ASTEROID_URL}"
         )
@@ -644,7 +647,13 @@ class HorizonsEphemerisProvider:
     provenance = None
 
     def __init__(self, epochs: Mapping[str, str]):
-        self.epochs = epochs
+        self.epochs = dict(epochs)
+        # Horizons expects BC notation for ancient dates. JD also preserves
+        # the astronomical year convention used by the local integrator.
+        for field in ("start", "stop"):
+            match = _CALENDAR_PATTERN.fullmatch(epochs[field])
+            if match and int(match.group(1)) < 100:
+                self.epochs[field] = f"JD{parse_epoch_jd(epochs[field], field)}"
 
     def target_vectors(self, object_name: str):
         """Return heliocentric target vectors from Horizons."""
@@ -771,7 +780,7 @@ class AssistEphemerisProvider:
         """Integrate the target and return heliocentric ecliptic vectors."""
         target_barycentric = self._integrated_barycentric_rows(object_name)
         target_ecliptic = _icrf_to_ecliptic(target_barycentric)
-        return _vector_mapping(target_ecliptic - self._sun_ecliptic)
+        return {**_vector_mapping(target_ecliptic - self._sun_ecliptic), "datetime_jd": self.grid.jds}
 
     def planet_vectors(self, planets: Iterable[str]) -> Mapping[str, Mapping[str, np.ndarray]]:
         """Return heliocentric vectors for the requested planets."""
@@ -790,8 +799,8 @@ def normalize_formats(formats: Sequence[str] | None) -> tuple[str, ...]:
     normalized: list[str] = []
     for value in requested:
         fmt = value.lower().lstrip(".")
-        if fmt not in {"pdf", "png"}:
-            raise ValueError(f"Unknown output format {value!r}; expected pdf or png")
+        if fmt not in {"pdf", "png", "mp4"}:
+            raise ValueError(f"Unknown output format {value!r}; expected pdf, png or mp4")
         if fmt not in normalized:
             normalized.append(fmt)
     return tuple(normalized)
@@ -804,7 +813,7 @@ def build_output_paths(
     frame_body: str,
     formats: Sequence[str] | None = None,
     output_dir: Path | str | None = None,
-    ephemeris: str = DEFAULT_EPHEMERIS,
+    ephemeris: str = "horizons",
 ) -> list[Path]:
     """Build destination paths without creating directories or files."""
 
@@ -841,6 +850,63 @@ def _plot_limit(target_x, target_y, planet_positions: Mapping[str, tuple[np.ndar
     return max(lim * 1.05, 1.0)
 
 
+def _check_movie_settings(fps: int, duration: float) -> None:
+    from matplotlib.animation import FFMpegWriter
+
+    if isinstance(fps, bool) or not isinstance(fps, (int, np.integer)) or fps <= 0:
+        raise ValueError("fps must be a positive integer")
+    if not math.isfinite(duration) or duration <= 0 or fps * duration < 1:
+        raise ValueError("duration must be finite and allow at least one frame at the requested fps")
+    try:
+        result = subprocess.run(
+            [FFMpegWriter.bin_path(), "-hide_banner", "-encoders"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise ValueError("MP4 output requires FFmpeg with the libx264 encoder") from exc
+    if not re.search(r"^\s*V\S*\s+libx264\s", result.stdout, re.MULTILINE):
+        raise ValueError("MP4 output requires an FFmpeg build with the libx264 encoder")
+
+
+def _movie_indices(jds: np.ndarray, fps: int, duration: float) -> np.ndarray:
+    if not len(jds) or not np.all(np.isfinite(jds)) or np.any(np.diff(jds) < 0):
+        raise ValueError("Animation requires a nonempty chronological TDB epoch grid")
+    count = min(len(jds), math.floor(fps * duration))
+    if count == len(jds):
+        return np.arange(count)
+    if count < 2:
+        raise ValueError("duration must allow both the first and last animation frames")
+    times = np.linspace(jds[0], jds[-1], count)
+    right = np.clip(np.searchsorted(jds, times), 1, len(jds) - 1)
+    left = right - 1
+    indices = np.where(times - jds[left] <= jds[right] - times, left, right)
+    indices[0], indices[-1] = 0, len(jds) - 1
+    return indices
+
+
+def _write_movie(fig, ax, path, tracks, jds, indices, fps):
+    from matplotlib.animation import FFMpegWriter
+
+    writer = FFMpegWriter(
+        fps=fps,
+        codec="libx264",
+        extra_args=["-pix_fmt", "yuv420p", "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2", "-movflags", "+faststart"],
+    )
+    with tempfile.TemporaryDirectory(prefix=".orbital-carousel-", dir=path.parent) as directory:
+        temporary = Path(directory) / path.name
+        with writer.saving(fig, temporary, dpi=fig.dpi):
+            for index in indices:
+                jd = jds[index]
+                ax.set_title(f"{format_epoch_date(jd)} TDB  (JD {jd:.6f})", fontsize="small")
+                for line, marker, x, y in tracks:
+                    line.set_data(x[: index + 1], y[: index + 1])
+                    marker.set_offsets([[x[index], y[index]]])
+                writer.grab_frame()
+        temporary.replace(path)
+
+
 def _write_plot(
     object_name: str,
     epochs: Mapping[str, str],
@@ -856,12 +922,15 @@ def _write_plot(
     show: bool,
     ephemeris: str,
     provenance: str | None,
+    jds: np.ndarray | None,
+    indices: np.ndarray | None,
+    fps: int,
 ) -> list[Path]:
     from matplotlib import pyplot as plt
 
     fig, ax = plt.subplots(figsize=figsize)
-    ax.plot(target_x, target_y, label=object_name, color="blue", linewidth=0.75)
-    ax.scatter(
+    (line,) = ax.plot(target_x, target_y, label=object_name, color="blue", linewidth=0.75)
+    marker = ax.scatter(
         target_x[-1],
         target_y[-1],
         color="blue",
@@ -869,10 +938,16 @@ def _write_plot(
         zorder=5,
         label=f"{epochs['stop']} position",
     )
+    tracks = [(line, marker, target_x, target_y)]
 
     for planet, (planet_x, planet_y) in planet_positions.items():
-        ax.plot(planet_x, planet_y, label=planet, color=PLANET_COLORS[planet], linewidth=1.5, alpha=0.7)
-        ax.scatter(planet_x[-1], planet_y[-1], color=PLANET_COLORS[planet], edgecolor="black", zorder=5)
+        (line,) = ax.plot(
+            planet_x, planet_y, label=planet, color=PLANET_COLORS[planet], linewidth=1.5, alpha=0.7
+        )
+        marker = ax.scatter(
+            planet_x[-1], planet_y[-1], color=PLANET_COLORS[planet], edgecolor="black", zorder=5
+        )
+        tracks.append((line, marker, planet_x, planet_y))
 
     sun_size = 10 if "Mercury" in selected_planets else 50
     ax.scatter(0, 0, color="yellow", marker="o", label="Sun", s=sun_size, edgecolor="orange")
@@ -901,13 +976,26 @@ def _write_plot(
         output_dir,
         ephemeris,
     )
-    for path in output_paths:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        fig.savefig(path, bbox_inches="tight")
-
-    if show:
-        plt.show()
-    plt.close(fig)
+    try:
+        output_paths[0].parent.mkdir(parents=True, exist_ok=True)
+        for path in output_paths:
+            if path.suffix != ".mp4":
+                fig.savefig(path, bbox_inches="tight")
+        if indices is not None:
+            movie_path = next(path for path in output_paths if path.suffix == ".mp4")
+            tracks[0][1].set_label("Current position")
+            ax.legend(loc="upper left", bbox_to_anchor=(1, 1))
+            title = object_name
+            if provenance:
+                title += "\n" + provenance.replace("; seed ", "\nseed ")
+            fig.suptitle(title, fontsize="small")
+            ax.set_title("TDB", fontsize="small")
+            fig.tight_layout()
+            _write_movie(fig, ax, movie_path, tracks, jds, indices, fps)
+        if show:
+            plt.show()
+    finally:
+        plt.close(fig)
     return output_paths
 
 
@@ -931,6 +1019,8 @@ def plot_orbit(
     ephemeris: str = DEFAULT_EPHEMERIS,
     assist_data_dir: Path | str | None = None,
     integration_epoch: str | None = None,
+    fps: int = DEFAULT_FPS,
+    duration: float = DEFAULT_DURATION,
 ) -> list[Path]:
     """Plot a minor-body orbit and return the written figure paths."""
 
@@ -938,11 +1028,14 @@ def plot_orbit(
     if frame not in {"heliocentric", "corotating"}:
         raise ValueError("frame must be 'heliocentric' or 'corotating'")
     ephemeris = ephemeris.lower()
-    if ephemeris not in {"horizons", "assist"}:
-        raise ValueError("ephemeris must be 'horizons' or 'assist'")
+    if ephemeris not in {"auto", "horizons", "assist"}:
+        raise ValueError("ephemeris must be 'auto', 'horizons' or 'assist'")
     frame_bodies = resolve_frame_bodies(frame_body)
     if frame == "heliocentric" and len(frame_bodies) > 1:
         raise ValueError("multiple frame bodies can only be used with the 'corotating' frame")
+    formats = normalize_formats(formats)
+    if "mp4" in formats:
+        _check_movie_settings(fps, duration)
 
     epochs = resolve_epochs(
         object_name,
@@ -953,6 +1046,37 @@ def plot_orbit(
         orbits=orbits,
         samples_per_orbit=samples_per_orbit,
     )
+
+    def fetch_vectors(provider):
+        target_vectors = provider.target_vectors(object_name)
+        selected_planets = resolve_planets(
+            planets,
+            target_vectors=target_vectors,
+            include_planets=include_planets,
+            exclude_planets=exclude_planets,
+        )
+
+        planets_to_query = set(selected_planets)
+        if frame == "corotating":
+            # The frame body is needed for the rotation even when the user excludes
+            # that planet from the visible plot.
+            planets_to_query.update(frame_bodies)
+
+        return target_vectors, selected_planets, provider.planet_vectors(planets_to_query)
+
+    if ephemeris in {"auto", "horizons"}:
+        provider = HorizonsEphemerisProvider(epochs)
+        try:
+            target_vectors, selected_planets, planet_vectors = fetch_vectors(provider)
+        except ValueError as exc:
+            if ephemeris == "horizons" or not re.search(
+                r'No ephemeris for target "[^"]+" (?:prior to|after) ', str(exc)
+            ):
+                raise
+            warnings.warn(f"{exc}. Switching to ASSIST for the full interval.", stacklevel=2)
+            ephemeris = "assist"
+        else:
+            ephemeris = "horizons"
     if ephemeris == "assist":
         provider = AssistEphemerisProvider(
             epochs,
@@ -966,27 +1090,16 @@ def plot_orbit(
             UserWarning,
             stacklevel=2,
         )
-    else:
-        provider = HorizonsEphemerisProvider(epochs)
-
-    target_vectors = provider.target_vectors(object_name)
-    selected_planets = resolve_planets(
-        planets,
-        target_vectors=target_vectors,
-        include_planets=include_planets,
-        exclude_planets=exclude_planets,
-    )
-
-    planets_to_query = set(selected_planets)
-    if frame == "corotating":
-        # The frame body is needed for the rotation even when the user excludes
-        # that planet from the visible plot.
-        planets_to_query.update(frame_bodies)
-
-    planet_vectors = provider.planet_vectors(planets_to_query)
+        target_vectors, selected_planets, planet_vectors = fetch_vectors(provider)
 
     base_target_x = _column_array(target_vectors, "x")
     base_target_y = _column_array(target_vectors, "y")
+    jds = indices = None
+    if "mp4" in formats:
+        jds = _column_array(target_vectors, "datetime_jd")
+        if jds.shape != base_target_x.shape:
+            raise ValueError("Animation epochs must match the trajectory samples")
+        indices = _movie_indices(jds, fps, duration)
     base_planet_positions = {
         planet: (_column_array(planet_vectors[planet], "x"), _column_array(planet_vectors[planet], "y"))
         for planet in selected_planets
@@ -1023,6 +1136,9 @@ def plot_orbit(
                 show,
                 ephemeris,
                 provider.provenance,
+                jds,
+                indices,
+                fps,
             )
         )
     return output_paths

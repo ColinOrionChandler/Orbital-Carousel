@@ -15,7 +15,7 @@ def test_parser_defaults_are_jupiter_corotating_all_planets():
     assert request.frame == "corotating"
     assert request.frame_body == "Jupiter"
     assert request.planets == "all"
-    assert request.ephemeris == "horizons"
+    assert request.ephemeris == "auto"
     assert request.assist_data_dir is None
     assert request.integration_epoch is None
     assert request.start is None
@@ -25,6 +25,8 @@ def test_parser_defaults_are_jupiter_corotating_all_planets():
     assert request.orbits == 20
     assert request.samples_per_orbit == 120
     assert request.formats == ("pdf", "png")
+    assert request.fps == 24
+    assert request.duration == 30
     assert request.output_dir is None
     assert request.figsize is None
 
@@ -54,6 +56,22 @@ def test_parser_accepts_repeated_formats_and_planet_overrides():
     assert request.exclude_planets == ("Mercury,Venus",)
     assert request.formats == ("png",)
     assert request.figsize == (8.0, 6.0)
+
+
+def test_cli_forwards_movie_settings(monkeypatch):
+    from orbital_carousel import cli
+
+    settings = {}
+
+    def fake_plot(name, **kwargs):
+        settings.update(kwargs)
+        return []
+
+    monkeypatch.setattr(cli, "plot_orbit", fake_plot)
+    assert (
+        cli.main(["2013 BU1", "--format", "mp4", "--format", "png", "--fps", "12", "--duration", "2.5"]) == 0
+    )
+    assert (settings["formats"], settings["fps"], settings["duration"]) == (("mp4", "png"), 12, 2.5)
 
 
 def test_parser_accepts_multiple_frame_bodies():
@@ -123,7 +141,7 @@ def test_help_does_not_leak_derived_none_defaults():
     assert "name>/." in help_text
     assert "Auto-derived when omitted." in normalized_help
     assert "May be repeated or comma-separated." in normalized_help
-    assert "--ephemeris {horizons,assist}" in help_text
+    assert "--ephemeris {auto,horizons,assist}" in help_text
     assert "--assist-data-dir" in help_text
     assert "--integration-epoch" in help_text
     assert "2019 OE31" in help_text

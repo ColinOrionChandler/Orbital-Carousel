@@ -49,7 +49,7 @@ assert distribution.metadata['License-Expression'] == 'BSD-3-Clause'
 assert {'test', 'dev', 'integrator'} <= set(distribution.metadata.get_all('Provides-Extra'))
 assert callable(package.plot_orbit)
 assert callable(package.resolve_epochs)
-assert package.DEFAULT_EPHEMERIS == 'horizons'
+assert package.DEFAULT_EPHEMERIS == 'auto'
 assert util.find_spec('assist') is None and util.find_spec('rebound') is None
 scripts = {entry.name: entry.value for entry in distribution.entry_points if entry.group == 'console_scripts'}
 assert scripts['orbital-carousel'] == scripts['corotating-carousel'] == 'orbital_carousel.cli:main'

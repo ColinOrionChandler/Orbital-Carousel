@@ -123,15 +123,20 @@ ASSIST Long-Span Integration
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
-Horizons remains the default ephemeris backend. Select ``--ephemeris assist`` to
-seed the target from one current Horizons barycentric ICRF state and propagate
+The default ``--ephemeris auto`` tries Horizons first. If Horizons reports
+that the target, a plotted planet, or a co-rotating frame body is outside its
+coverage, Orbital Carousel retries the entire requested interval with ASSIST.
+Use ``--ephemeris horizons`` to require Horizons or ``--ephemeris assist`` to
+start directly with the long-span backend.
+
+ASSIST seeds the target from one Horizons barycentric ICRF state and propagates
 it locally with ASSIST/REBOUND IAS15. Planet and frame-body positions come from
 the same local DE441 ephemeris, allowing plots outside Horizons' per-body
 coverage windows.
 
 ASSIST needs the extended DE441 planet ephemeris and the 16-asteroid kernel,
-which total more than 3 GB. Store these outside the repository and point
-``ASSIST_DIR`` at their directory:
+which total more than 3 GB. Place them in ``~/.cache/orbital-carousel/assist``
+or set ``ASSIST_DIR`` to their directory:
 
 
 .. code-block:: bash
@@ -151,6 +156,31 @@ Use ``--assist-data-dir`` to override ``ASSIST_DIR`` for one run and
 filenames include ``_assist_`` and figures identify the seed epoch and DE441/n16
 model. These are nominal trajectories: v1 does not propagate the fitted orbit's
 covariance or retrieve cometary non-gravitational parameters.
+
+
+Orbit animations
+~~~~~~~~~~~~~~~~
+
+Use ``--format mp4`` to save a growing-path animation. Install FFmpeg with the
+``libx264`` encoder and make it available on your PATH or through Matplotlib's
+``animation.ffmpeg_path`` setting. To reproduce the 2013 BU1 movie, run:
+
+.. code-block:: bash
+
+   orbital-carousel "2013 BU1" --start 1762-11-29 --stop 2026-11-08 --step 41d \
+       --ephemeris assist --integration-epoch 2026-11-08 --frame-body Jupiter \
+       --planets all --format mp4 --figsize 12 9 --fps 24 --duration 30
+
+The axes stay fixed while the target and planet markers advance through the
+sampled TDB epochs. The default playback rate is 24 frames per second and the
+default maximum duration is 30 seconds. Short trajectories show every sample
+and finish sooner. For longer trajectories the renderer selects samples nearest
+evenly spaced times and draws the full path between displayed markers. A
+multi-sample movie needs enough time for at least two frames at the chosen rate.
+
+Repeat ``--format`` to write a movie and still plots using the same vectors,
+for example ``--format png --format mp4``. The Python equivalent is
+``plot_orbit("2013 BU1", formats=("png", "mp4"), fps=24, duration=30)``.
 
 
 Python API
@@ -174,6 +204,5 @@ Python API
 
 
 ``plot_orbit()`` returns the paths it wrote. The supported planets are Mercury
-through Neptune. Horizons supplies heliocentric vectors by default; ASSIST is
-an explicit optional backend. The Python API uses the same orbit-scaled epoch
+through Neptune. The Python API uses the same automatic backend selection and orbit-scaled epoch
 defaults as the CLI unless ``auto_epochs=False`` is passed.

@@ -322,6 +322,79 @@ def test_assist_data_path_explicit_directory_precedes_environment(tmp_path, monk
     )
 
 
+def test_auto_sends_ancient_dates_as_jd_to_horizons():
+    epochs = {"start": "-1200-01-01", "stop": "2026-01-01", "step": "30d"}
+    provider = core.HorizonsEphemerisProvider(epochs)
+
+    assert provider.epochs == {**epochs, "start": f"JD{parse_epoch_jd(epochs['start'])}"}
+    assert epochs["start"] == "-1200-01-01"
+
+
+@pytest.mark.parametrize(
+    ("failed_id", "coverage_error"),
+    [
+        ("899", 'Horizons Error: No ephemeris for target "Neptune" prior to A.D. 1800-JAN-02'),
+        ("2013 BU1", 'Horizons Error: No ephemeris for target "(2013 BU1)" after A.D. 2500-JAN-01'),
+    ],
+)
+def test_auto_uses_assist_for_all_vectors_on_coverage_error(tmp_path, monkeypatch, failed_id, coverage_error):
+    epochs = {"start": "1762-11-29", "stop": "2026-11-08", "step": "41d"}
+
+    def horizons_positions(object_name, requested_epochs):
+        assert requested_epochs == epochs
+        if object_name == failed_id:
+            raise ValueError(coverage_error)
+        return vectors([2.0, 3.0])
+
+    class Assist:
+        provenance = "ASSIST test"
+
+        def __init__(self, requested_epochs, *, assist_data_dir, integration_epoch):
+            assert requested_epochs == epochs
+            assert assist_data_dir == tmp_path
+            assert integration_epoch == "2026-01-01"
+
+        def target_vectors(self, name):
+            assert name == "2013 BU1"
+            return vectors([3.0, 4.0, 5.0])
+
+        def planet_vectors(self, planets):
+            assert planets == {"Jupiter", "Neptune"}
+            return {p: vectors([5.0, 6.0, 7.0]) for p in planets}
+
+    monkeypatch.setattr(core, "get_positions", horizons_positions)
+    monkeypatch.setattr(core, "AssistEphemerisProvider", Assist)
+    with pytest.warns(UserWarning) as messages:
+        paths = core.plot_orbit(
+            "2013 BU1",
+            **epochs,
+            planets="Neptune",
+            formats=("png",),
+            assist_data_dir=tmp_path,
+            integration_epoch="2026-01-01",
+            output_dir=tmp_path,
+        )
+    assert any(coverage_error in str(w.message) and "Switching to ASSIST" in str(w.message) for w in messages)
+    assert paths[0].is_file() and "_assist_corotating_Jupiter" in paths[0].name
+
+
+@pytest.mark.parametrize(
+    ("mode", "error"),
+    [
+        ("auto", "Unknown target"),
+        ("horizons", 'Horizons Error: No ephemeris for target "Neptune" prior to A.D. 1800-JAN-02'),
+    ],
+)
+def test_auto_only_retries_horizons_coverage_errors(monkeypatch, mode, error):
+    def fail(*args):
+        raise ValueError(error)
+
+    monkeypatch.setattr(core, "get_positions", fail)
+    with pytest.raises(ValueError) as exc:
+        core.plot_orbit("2013 BU1", auto_epochs=False, ephemeris=mode)
+    assert str(exc.value) == error
+
+
 def test_assist_data_path_error_lists_required_files(tmp_path):
     with pytest.raises(ValueError, match=r"linux_m13000p17000\.441.*sb441-n16\.bsp"):
         resolve_assist_data_paths(tmp_path)
@@ -423,6 +496,7 @@ def test_assist_provider_uses_independent_backward_and_forward_integrations(tmp_
     target = provider.target_vectors("2025 NN80")
 
     np.testing.assert_allclose(target["x"], [9.0, 10.0, 11.0])
+    np.testing.assert_array_equal(target["datetime_jd"], [2451544, 2451545, 2451546])
     assert integrations == [[-1.0], [1.0]]
     assert seed_queries == [("2025 NN80", 2451545.0)]
     assert "seed 2000-01-01 TDB" in provider.provenance
